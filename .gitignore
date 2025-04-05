@@ -1,3 +1,12 @@
 .history
 .venv
 data/
+cached_landmarks/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+old_data/

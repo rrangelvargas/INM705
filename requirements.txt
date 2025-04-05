@@ -1,7 +1,7 @@
---index-url https://download.pytorch.org/whl/cu126
-torch
-torchaudio
-torchvision
-
---index-url https://pypi.org/simple
 matplotlib
+opencv-python
+mediapipe>=0.10.0
+tqdm
+torch
+torchvision
+torchaudio
