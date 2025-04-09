@@ -31,19 +31,18 @@ class SignLanguageDataset(Dataset):  # define custom dataset class
                 word_counts[word] = len(instances)  # store count
                 word_instances[word] = instances  # store instances
 
-        top_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)[:5]  # get top 5 words
-        top_words = [word for word, _ in top_words]  # extract word names
-        print(f"top 5 words: {top_words}")  # log top words
+        all_words = sorted(word_counts.keys())  # get all words
+        print(f"total words: {len(all_words)}")  # log total words
 
         self.word2idx = {'<PAD>': 0, '<UNK>': 1}  # initialize word-to-index map
-        for word in top_words:  # assign index for each word
+        for word in all_words:  # assign index for each word
             self.word2idx[word] = len(self.word2idx)
 
         self.samples = []  # list of all (path, label, vid)
         word_sample_counts = Counter()  # track sample count per word
 
         print("\npreparing samples...")  # log sample preparation
-        for word in tqdm(top_words, desc="processing words"):  # loop through each word
+        for word in tqdm(all_words, desc="processing words"):  # loop through each word
             instances = word_instances[word]  # get instances for word
             num_augment = max(1, (100 - len(instances)) // len(instances) + 1)  # determine how many augmentations needed
             for instance in instances:  # loop through instances
@@ -217,6 +216,10 @@ def train():  # train the model
         val_accuracies.append(val_acc)
 
         print(f"\nepoch {epoch+1} - train acc: {train_acc:.2f}%, val acc: {val_acc:.2f}%")
+    
+    # save the trained model
+    torch.save(model.state_dict(), 'trained_model.pth')
+    print("Model saved to 'trained_model.pth'")
 
     plt.figure(figsize=(12, 4))  # plot figure
     plt.subplot(1, 2, 1)  # loss subplot
