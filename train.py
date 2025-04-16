@@ -3,8 +3,15 @@ import torch
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import argparse
 
 from dataset.dataset import SignLanguageDataset
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train a sign language model.")
+    parser.add_argument("--model", type=str, default="baseline", choices=["baseline", "vqvae"],
+                        help="Model type to train: 'baseline' or 'vqvae'")
+    return parser.parse_args()
 
 def run_epoch(model, loader, loss_fn, opt, device, is_train=True):
     if is_train:
@@ -63,6 +70,8 @@ def run_epoch(model, loader, loss_fn, opt, device, is_train=True):
 
 
 def train():
+    args = parse_args()
+
     print("[wandb] Initializing W&B run...")
     wandb.init(
         project="sign-language-lstm",
@@ -71,7 +80,7 @@ def train():
             "batch_size": 16,
             "lr": 1e-3,
             "sequence_length": 30,
-            "model": "vqvae",
+            "model": args.model,
             "dataset": "WLASL"
         }
     )
@@ -113,6 +122,7 @@ def train():
 
     train_losses, train_accuracies = [], []
     val_losses, val_accuracies = [], []
+    best_val_acc = 0.0
 
     for epoch in range(config.epochs):
         print(f"\n[epoch] {epoch + 1}/{config.epochs} starting...")
@@ -144,6 +154,13 @@ def train():
             "val_acc": val_acc
         })
 
+        # check if this is the best model so far
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_model_path = f'models/{config.model}_best.pth'
+            torch.save(model.state_dict(), best_model_path)
+            print(f"[save] New best model saved to '{best_model_path}' (val acc: {best_val_acc:.2f}%)")
+
     model_path = f'models/{config.model}_model.pth'
     torch.save(model.state_dict(), model_path)
     print(f"[save] Model saved to '{model_path}'")
@@ -168,7 +185,7 @@ def train():
     plt.legend()
 
     plt.tight_layout()
-    plot_path = 'training_progress.png'
+    plot_path = f'training_progress_{config.model}.png'
     plt.savefig(plot_path)
     plt.close()
     print(f"[plot] Saved plot to '{plot_path}'")

@@ -20,8 +20,8 @@ module load gnu
 # Activate your venv
 source venv/bin/activate
 
-export https_proxy=http://hpc-proxy00.city.ac.uk:3128
-export http_proxy=http://hpc-proxy00.city.ac.uk:3128
+# export https_proxy=http://hpc-proxy00.city.ac.uk:3128
+# export http_proxy=http://hpc-proxy00.city.ac.uk:3128
 
 export WANDB_MODE=offline
 
@@ -35,4 +35,4 @@ python --version
 
 # Run your training script
 export https_proxy=http://hpc-proxy00.city.ac.uk
-python3 train.py
+python3 train.py --model baseline

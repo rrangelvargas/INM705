@@ -52,54 +52,66 @@ class SignLanguageVQVAEModel(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
 
-        print("[Model] Initializing VQ-VAE model...")
+        print("[Model] Initializing full VQ-VAE model with reconstruction...")
 
-        # encoder LSTM: encodes input sequences into continuous latent vectors
         self.encoder = nn.LSTM(
-            input_size=225,     # number of features per frame
-            hidden_size=256,    # LSTM hidden dimension
-            num_layers=1,       # single LSTM layer
-            batch_first=True,   # input shape is [B, T, C]
-            bidirectional=True  # concatenate forward + backward outputs → 512 dim
-        )
-
-        # vector quantization layer
-        self.vq_layer = VectorQuantizer(
-            num_embeddings=128,    # size of codebook
-            embedding_dim=512,     # must match encoder output dim
-            commitment_cost=0.25   # beta value for VQ loss
-        )
-
-        # decoder LSTM: tries to reconstruct input or compress features
-        self.decoder = nn.LSTM(
-            input_size=512,     # quantized latent vectors
+            input_size=225,
             hidden_size=256,
             num_layers=1,
             batch_first=True,
             bidirectional=True
         )
 
-        # classifier: final linear layer for prediction
+        self.encoder_norm = nn.LayerNorm(512)
+        self.dropout = nn.Dropout(0.3)
+
+        self.vq_layer = VectorQuantizer(
+            num_embeddings=256,     # Larger codebook
+            embedding_dim=512,      # Matches encoder output
+            commitment_cost=0.1     # Lower commitment cost
+        )
+
+        self.decoder = nn.LSTM(
+            input_size=512,
+            hidden_size=256,
+            num_layers=1,
+            batch_first=True,
+            bidirectional=True
+        )
+
+        self.decoder_norm = nn.LayerNorm(512)
+
+        self.reconstruction_head = nn.Linear(512, 225)
         self.classifier = nn.Linear(512, num_classes)
 
         print(f"[Model] VQ-VAE initialized with classifier output dim: {num_classes}")
 
     def forward(self, x):
-        # flatten if input has extra dims (e.g. [B, T, 15, 15])
         if x.dim() == 4:
             batch_size, seq_len, *_ = x.size()
-            x = x.view(batch_size, seq_len, -1)  # [B, T, 225]
+            x = x.view(batch_size, seq_len, -1)
 
-        # encode sequence
-        enc_out, _ = self.encoder(x)  # [B, T, 512]
+        # encode
+        enc_out, _ = self.encoder(x)         # [B, T, 512]
+        enc_out = self.encoder_norm(enc_out)
+        enc_out = self.dropout(enc_out)
 
-        # quantize latent vectors
-        quantized, vq_loss = self.vq_layer(enc_out)  # [B, T, 512], scalar
+        # quantize
+        quantized, vq_loss = self.vq_layer(enc_out)  # [B, T, 512]
 
-        # decode the quantized sequence
-        dec_out, _ = self.decoder(quantized)  # [B, T, 512]
+        # decode
+        dec_out, _ = self.decoder(quantized)         # [B, T, 512]
+        dec_out = self.decoder_norm(dec_out)
+        dec_out = self.dropout(dec_out)
 
-        # classify using last time step's output
+        # reconstruct input
+        reconstructed = self.reconstruction_head(dec_out)  # [B, T, 225]
+        recon_loss = F.mse_loss(reconstructed, x)
+
+        # classify (last time step)
         logits = self.classifier(dec_out[:, -1])  # [B, num_classes]
 
-        return logits, vq_loss  # prediction and additional VQ loss
+        # combine losses
+        total_extra_loss = vq_loss + recon_loss
+
+        return logits, total_extra_loss
