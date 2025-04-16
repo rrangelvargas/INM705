@@ -62,9 +62,6 @@ class SignLanguageVQVAEModel(nn.Module):
             bidirectional=True
         )
 
-        self.encoder_norm = nn.LayerNorm(512)
-        self.dropout = nn.Dropout(0.3)
-
         self.vq_layer = VectorQuantizer(
             num_embeddings=256,     # Larger codebook
             embedding_dim=512,      # Matches encoder output
@@ -78,8 +75,6 @@ class SignLanguageVQVAEModel(nn.Module):
             batch_first=True,
             bidirectional=True
         )
-
-        self.decoder_norm = nn.LayerNorm(512)
 
         self.reconstruction_head = nn.Linear(512, 225)
         self.classifier = nn.Linear(512, num_classes)
