@@ -88,16 +88,12 @@ class SignLanguageVQVAEModel(nn.Module):
 
         # encode
         enc_out, _ = self.encoder(x)         # [B, T, 512]
-        enc_out = self.encoder_norm(enc_out)
-        enc_out = self.dropout(enc_out)
 
         # quantize
         quantized, vq_loss = self.vq_layer(enc_out)  # [B, T, 512]
 
         # decode
         dec_out, _ = self.decoder(quantized)         # [B, T, 512]
-        dec_out = self.decoder_norm(dec_out)
-        dec_out = self.dropout(dec_out)
 
         # reconstruct input
         reconstructed = self.reconstruction_head(dec_out)  # [B, T, 225]
