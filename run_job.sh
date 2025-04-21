@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=sign-train                # Job name
-#SBATCH --partition=prigpu                   # GPU partition
+#SBATCH --partition=gengpu                   # GPU partition
 #SBATCH --nodes=1                            # 1 node
 #SBATCH --ntasks-per-node=1                  # 1 task per node
 #SBATCH --cpus-per-task=4                    # 4 CPU cores
@@ -20,8 +20,8 @@ module load gnu
 # Activate your venv
 source venv/bin/activate
 
-# export https_proxy=http://hpc-proxy00.city.ac.uk:3128
-# export http_proxy=http://hpc-proxy00.city.ac.uk:3128
+export https_proxy=http://hpc-proxy00.city.ac.uk:3128
+export http_proxy=http://hpc-proxy00.city.ac.uk:3128
 
 export WANDB_MODE=offline
 
@@ -33,6 +33,4 @@ wandb login $WANDB_API_KEY --relogin
 which python
 python --version
 
-# Run your training script
-export https_proxy=http://hpc-proxy00.city.ac.uk
-python3 train.py --model baseline
+python train_grid.py --model attention

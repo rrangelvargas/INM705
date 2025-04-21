@@ -6,7 +6,7 @@ flight env activate gridware
 module add gnu
 
 # OPTIONAL: Only run this once to create your venv, then comment it out
-pyenv virtualenv 3.9.5 inm705_env
+python3 -m venv venv
 
 # Activate your virtual environment
 source venv/bin/activate
