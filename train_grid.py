@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 import wandb
+import time
+import json
+import os
 import itertools
 from tqdm import tqdm
 from torch.utils.data import DataLoader
@@ -49,12 +52,21 @@ def run_epoch(model, loader, loss_fn, opt, device, is_train=True):
             total_extra_loss / num_batches,
             100 * correct / total)
 
-def train_with_config(config):
+def train_with_config(config, combinations):
+    start_time = time.time()
     trial_id = config['trial_id']
-    print(f"\n{timestamp()} === Starting Trial {trial_id} ===")
+    print(f"\n{timestamp()} === Starting Trial {trial_id}/{len(combinations)} ===")
     print(f"{timestamp()} Config: {config}")
 
-    wandb.init(project="sign-language-lstm", config=config, name=f"grid-{trial_id}")
+    wandb.init(
+        project="sign-language-lstm",
+        config=config,
+        name=f"grid-{trial_id}",
+        reinit=True,
+        group=config["model"],
+        tags=[config["model"]]
+    )
+
     config = wandb.config
 
     print(f"{timestamp()} Loading dataset...")
@@ -75,6 +87,11 @@ def train_with_config(config):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"{timestamp()} Using device: {device}")
+
+    # Log device info to wandb and print
+    device_name = torch.cuda.get_device_name(0) if device.type == "cuda" else "cpu"
+    wandb.config.update({"device": device_name})
+    print(f"{timestamp()} Logged device to W&B: {device_name}")
 
     if config.model == "baseline":
         from models.model_baseline import SignLanguageModel as SelectedModel
@@ -100,7 +117,7 @@ def train_with_config(config):
         raise ValueError(f"Unknown model: {config.model}")
 
     model = model.to(device)
-    wandb.watch(model)
+    wandb.watch(model, log="gradients", log_freq=100)
     opt = torch.optim.Adam(model.parameters(), lr=config.lr)
     loss_fn = nn.CrossEntropyLoss()
 
@@ -114,6 +131,7 @@ def train_with_config(config):
 
         print(f"{timestamp()} Train acc: {train_acc:.2f}% | Val acc: {val_acc:.2f}%")
         print(f"{timestamp()} Train loss: {train_loss:.4f} | Val loss: {val_loss:.4f}")
+        print(f"{timestamp()} Logging to W&B: Epoch {epoch + 1} | Val Acc: {val_acc:.2f}")
 
         wandb.log({
             "epoch": epoch + 1,
@@ -134,7 +152,30 @@ def train_with_config(config):
             print(f"{timestamp()} [SAVE] New best model to {save_path} (val acc: {val_acc:.2f}%)")
 
     print(f"{timestamp()} Trial {trial_id} complete. Best val acc: {best_val_acc:.2f}%\n")
+
+    run_time_secs = round(time.time() - start_time, 2)
+
+    os.makedirs("results", exist_ok=True)
+    try:
+        with open(f"results/trial_{trial_id:03d}_{config.model}_log.json", "w") as f:
+            json.dump({
+                "timestamp": timestamp(),
+                "run_time_secs": run_time_secs,
+                "val_acc": best_val_acc,
+                "config": dict(config)
+            }, f, indent=2)
+    except Exception as e:
+        print(f"{timestamp()} [WARN] Failed to write result JSON: {e}")
+
+    wandb.log({
+        "final_val_acc": best_val_acc,
+        "run_time_secs": run_time_secs,
+        "final_epoch": config.epochs,
+        "final_model": config.model
+    })
+
     wandb.finish()
+    time.sleep(2)
 
     with open("grid_search_log.txt", "a") as f:
         f.write(f"{timestamp()} Trial {trial_id} | {dict(config)} | Val Acc: {best_val_acc:.2f}\n")
@@ -147,16 +188,18 @@ def main():
     # Define grid search ranges
     grid = {
         "batch_size": [8, 16],
-        "lr": [1e-4, 3e-4, 1e-3],
-        "sequence_length": [20, 40, 60],
-        "hidden_size": [256, 512, 768],
-        "num_layers": [1, 2],
-        "dropout": [0.0, 0.2, 0.5],
+        "lr": [1e-4, 3e-4],
+        "sequence_length": [40],
+        "num_layers": [1],
+        "dropout": [0.0, 0.5],
     }
 
-    # Only include attention_type for attention model
+    # Modify grid based on model
     if args.model == "attention":
+        grid["hidden_size"] = [512]  # Always use 512 for attention
         grid["attention_type"] = ["dot", "additive"]
+    else:
+        grid["hidden_size"] = [256, 512]  # More options for other models
 
     # Create all trial combinations
     param_keys = list(grid.keys())
@@ -175,11 +218,11 @@ def main():
                 "trial_id": trial_id
             })
 
-            train_with_config(config)
+            train_with_config(config, combinations)
 
         except Exception as e:
             print(f"{timestamp()} [ERROR] Trial {trial_id} failed: {e}")
-            with open("grid_search_log.txt", "a") as f:
+            with open(f"grid_search_log_{config['model']}.txt", "a") as f:
                 f.write(f"{timestamp()} Trial {trial_id} FAILED | {dict(config)} | Error: {str(e)}\n")
 
     print(f"{timestamp()} Grid search complete. Logs saved to grid_search_log.txt")
