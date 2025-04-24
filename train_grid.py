@@ -19,7 +19,7 @@ def timestamp():
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="baseline", 
-                       choices=["baseline", "vqvae", "attention", "baseline_lr", "baseline_loss"])
+                       choices=["baseline", "vqvae", "attention", "baseline_lr", "baseline_loss_ls", "baseline_loss_arcface"])
     parser.add_argument("--max-words", type=int, default=None, help="Maximum number of words to use from the dataset")
     return parser.parse_args()
 
@@ -153,14 +153,18 @@ def train_with_config(config, combinations):
             "loss_function": "label_smoothing",
             "loss_params": {"reduction": "mean"}
         })
-    elif config.model == "baseline_loss_cosine":
+    elif config.model == "baseline_loss_arcface":
         from models.model_baseline_loss import get_loss
-        loss_fn = get_loss("cosine")
-        loss_fn_name = "cosine"
+        loss_fn = get_loss("arcface", margin=0.5, scale=30.0)
+        loss_fn_name = "arcface"
         # Log loss function details
         wandb.config.update({
-            "loss_function": "cosine",
-            "loss_params": {"reduction": "mean"}    
+            "loss_function": "arcface",
+            "loss_params": {
+                "margin": 0.5,
+                "scale": 30.0,
+                "reduction": "mean"
+            }
         })
     else:
         loss_fn = nn.CrossEntropyLoss()

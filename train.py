@@ -6,7 +6,7 @@ from tqdm import tqdm
 import argparse
 import os
 import datetime
-
+from visualizer import parse_baseline_log, plot_training_progress
 from dataset.dataset import SignLanguageDataset
 
 # os.environ["https_proxy"] = "http_proxy=http://hpc-proxy00.city.ac.uk:3128/"
@@ -17,7 +17,7 @@ def timestamp():
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a sign language model.")
     parser.add_argument("--model", type=str, default="baseline", 
-                       choices=["baseline", "vqvae", "attention", "baseline_lr", "baseline_loss_ls", "baseline_loss_cosine"],
+                       choices=["baseline", "attention", "baseline_lr", "baseline_loss_ls", "baseline_loss_arcface"],
                        help="Model type to train")
     parser.add_argument("--max-words", type=int, default=None, help="Maximum number of words to use from the dataset")
     return parser.parse_args()
@@ -101,10 +101,8 @@ def train():
         from models.model_baseline_lr import SignLanguageModel as SelectedModel
     elif config.model == "baseline_loss_ls":
         from models.model_baseline_loss import SignLanguageModel as SelectedModel
-    elif config.model == "baseline_loss_cosine":
+    elif config.model == "baseline_loss_arcface":
         from models.model_baseline_loss import SignLanguageModel as SelectedModel
-    elif config.model == "vqvae":
-        from models.model_vqvae import SignLanguageVQVAEModel as SelectedModel
     elif config.model == "attention":
         from models.model_attention import SignLanguageAttentionModel as SelectedModel
     else:
@@ -146,12 +144,12 @@ def train():
             "loss_function": "label_smoothing",
             "loss_params": {"reduction": "mean"}
         })
-    elif config.model == "baseline_loss_cosine":
+    elif config.model == "baseline_loss_arcface":
         from models.model_baseline_loss import get_loss
-        loss_fn = get_loss("cosine")
-        loss_fn_name = "cosine"
+        loss_fn = get_loss("arcface")
+        loss_fn_name = "arcface"
         wandb.config.update({
-            "loss_function": "cosine",
+            "loss_function": "arcface",
             "loss_params": {"reduction": "mean"}
         })
     else:
@@ -246,48 +244,56 @@ def train():
     model_path = f'models/{config.model}_model.pth'
     torch.save(model.state_dict(), model_path)
     print(f"[save] Model saved to '{model_path}'")
-    wandb.save(model_path)
 
+    # Save plots before W&B operations
     print("[plot] Saving training plots...")
-    plt.figure(figsize=(12, 4))
-    plt.subplot(1, 2, 1)
-    plt.plot(train_losses, label='train')
-    plt.plot(val_losses, label='validation')
-    plt.title('loss')
-    plt.xlabel('epoch')
-    plt.ylabel('loss')
-    plt.legend()
+    # Create plots directory if it doesn't exist
+    os.makedirs("plots", exist_ok=True)
+    plot_path = os.path.join("plots", f'training_progress_{config.model}.png')
+    
+    # Try to load baseline data if available
+    baseline_train_acc = None
+    baseline_val_acc = None
+    baseline_train_loss = None
+    baseline_val_loss = None
+    try:
+        baseline_train_acc, baseline_val_acc, baseline_train_loss, baseline_val_loss = parse_baseline_log("baseline_training.txt")
+    except:
+        print("[plot] No baseline data found, plotting without baseline comparison")
 
-    plt.subplot(1, 2, 2)
-    plt.plot(train_accuracies, label='train')
-    plt.plot(val_accuracies, label='validation')
-    plt.title('accuracy')
-    plt.xlabel('epoch')
-    plt.ylabel('accuracy (%)')
-    plt.legend()
-
-    plt.tight_layout()
-    plot_path = f'training_progress_{config.model}.png'
-    plt.savefig(plot_path)
-    plt.close()
+    plot_training_progress(
+        train_losses, val_losses,
+        train_accuracies, val_accuracies,
+        baseline_train_acc, baseline_val_acc,
+        baseline_train_loss, baseline_val_loss,
+        model_name=config.model,
+        save_path=plot_path
+    )
     print(f"[plot] Saved plot to '{plot_path}'")
-    wandb.log({"training_progress_plot": wandb.Image(plot_path)})
 
-    # Log final results
-    wandb.log({
-        "final_val_acc": best_val_acc,
-        "final_epoch": config.epochs,
-        "final_model": config.model,
-        "model_specific": {
-            "loss_function": config.get("loss_function", "cross_entropy"),
-            "loss_params": config.get("loss_params", {}),
-            "scheduler": config.get("scheduler", None),
-            "scheduler_params": config.get("scheduler_params", {})
-        }
-    })
+    # Try W&B operations with error handling
+    try:
+        wandb.save(model_path)
+        wandb.log({"training_progress_plot": wandb.Image(plot_path)})
 
-    wandb.finish()
-    print("[done] Training complete. W&B run finished.")
+        # Log final results
+        wandb.log({
+            "final_val_acc": best_val_acc,
+            "final_epoch": config.epochs,
+            "final_model": config.model,
+            "model_specific": {
+                "loss_function": config.get("loss_function", "cross_entropy"),
+                "loss_params": config.get("loss_params", {}),
+                "scheduler": config.get("scheduler", None),
+                "scheduler_params": config.get("scheduler_params", {})
+            }
+        })
+
+        wandb.finish()
+        print("[done] Training complete. W&B run finished.")
+    except Exception as e:
+        print(f"[warn] W&B operations failed: {e}")
+        print("[done] Training complete. W&B run failed but model and plots are saved.")
 
 if __name__ == '__main__':
     train()

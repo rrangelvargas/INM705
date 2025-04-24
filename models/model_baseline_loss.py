@@ -47,30 +47,38 @@ class LabelSmoothingLoss(nn.Module):
             return loss.sum()
         return loss
 
-class CosineEmbeddingLoss(nn.Module):
-    """Cosine Embedding Loss for better feature learning."""
-    def __init__(self, margin=0.0, reduction='mean'):
-        super(CosineEmbeddingLoss, self).__init__()
+class AdditiveAngularMarginLoss(nn.Module):
+    """Additive Angular Margin Loss (ArcFace) for better feature learning."""
+    def __init__(self, margin=0.5, scale=30.0, reduction='mean'):
+        super(AdditiveAngularMarginLoss, self).__init__()
         self.margin = margin
+        self.scale = scale
         self.reduction = reduction
 
     def forward(self, pred, target):
-        # Convert targets to one-hot
-        n_classes = pred.size(1)
-        target_one_hot = torch.zeros_like(pred).scatter(1, target.unsqueeze(1), 1)
-        
-        # Compute cosine similarity
+        # Normalize the predictions
         pred_norm = F.normalize(pred, p=2, dim=1)
-        target_norm = F.normalize(target_one_hot, p=2, dim=1)
-        cosine_sim = torch.sum(pred_norm * target_norm, dim=1)
         
-        # Compute loss
-        loss = 1 - cosine_sim
+        # Get the cosine of the angles
+        cosine = pred_norm
         
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
+        # Calculate the sine of the angles
+        sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
+        
+        # Calculate the cosine of the angle plus margin
+        phi = cosine * torch.cos(torch.tensor(self.margin, device=cosine.device)) - sine * torch.sin(torch.tensor(self.margin, device=cosine.device))
+        
+        # Create one-hot encoding of targets
+        one_hot = torch.zeros_like(pred)
+        one_hot.scatter_(1, target.unsqueeze(1), 1)
+        
+        # Calculate the output
+        output = (one_hot * phi) + ((1.0 - one_hot) * cosine)
+        output *= self.scale
+        
+        # Calculate the loss
+        loss = F.cross_entropy(output, target, reduction=self.reduction)
+        
         return loss
 
 
@@ -78,7 +86,7 @@ def get_loss(loss_type, **kwargs):
     """Factory function to get the appropriate loss function."""
     if loss_type == "label_smoothing":
         return LabelSmoothingLoss(**kwargs)
-    elif loss_type == "cosine":
-        return CosineEmbeddingLoss(**kwargs)
+    elif loss_type == "arcface":
+        return AdditiveAngularMarginLoss(**kwargs)
     else:
         raise ValueError(f"Unknown loss type: {loss_type}") 

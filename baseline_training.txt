@@ -1,0 +1,117 @@
+[2025-04-23 23:36:40] [Epoch 1/20]
+[2025-04-23 23:38:33] Train acc: 11.16% | Val acc: 28.31%
+[2025-04-23 23:38:33] Train loss: 5.2874 | Val loss: 3.5476
+[2025-04-23 23:38:33] Logging to W&B: Epoch 1 | Val Acc: 28.31
+[2025-04-23 23:38:33] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 28.31%)
+
+[2025-04-23 23:38:33] [Epoch 2/20]
+[2025-04-23 23:40:26] Train acc: 50.90% | Val acc: 64.33%
+[2025-04-23 23:40:26] Train loss: 2.2954 | Val loss: 1.6012
+[2025-04-23 23:40:26] Logging to W&B: Epoch 2 | Val Acc: 64.33
+[2025-04-23 23:40:26] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 64.33%)
+
+[2025-04-23 23:40:26] [Epoch 3/20]
+[2025-04-23 23:42:18] Train acc: 73.42% | Val acc: 75.90%
+[2025-04-23 23:42:18] Train loss: 1.1478 | Val loss: 1.0045
+[2025-04-23 23:42:18] Logging to W&B: Epoch 3 | Val Acc: 75.90
+[2025-04-23 23:42:18] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 75.90%)
+
+[2025-04-23 23:42:18] [Epoch 4/20]
+[2025-04-23 23:44:15] Train acc: 80.98% | Val acc: 80.53%
+[2025-04-23 23:44:15] Train loss: 0.7718 | Val loss: 0.7752
+[2025-04-23 23:44:15] Logging to W&B: Epoch 4 | Val Acc: 80.53
+[2025-04-23 23:44:15] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 80.53%)
+
+[2025-04-23 23:44:15] [Epoch 5/20]
+[2025-04-23 23:46:08] Train acc: 84.29% | Val acc: 83.21%
+[2025-04-23 23:46:08] Train loss: 0.6080 | Val loss: 0.6491
+[2025-04-23 23:46:08] Logging to W&B: Epoch 5 | Val Acc: 83.21
+[2025-04-23 23:46:08] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 83.21%)
+
+[2025-04-23 23:46:08] [Epoch 6/20]
+[2025-04-23 23:48:02] Train acc: 85.95% | Val acc: 84.06%
+[2025-04-23 23:48:02] Train loss: 0.5214 | Val loss: 0.5917
+[2025-04-23 23:48:02] Logging to W&B: Epoch 6 | Val Acc: 84.06
+[2025-04-23 23:48:02] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 84.06%)
+
+[2025-04-23 23:48:02] [Epoch 7/20]
+[2025-04-23 23:49:57] Train acc: 87.10% | Val acc: 85.71%
+[2025-04-23 23:49:57] Train loss: 0.4647 | Val loss: 0.5236
+[2025-04-23 23:49:57] Logging to W&B: Epoch 7 | Val Acc: 85.71
+[2025-04-23 23:49:57] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 85.71%)
+
+[2025-04-23 23:49:57] [Epoch 8/20]
+[2025-04-23 23:51:50] Train acc: 87.96% | Val acc: 85.78%
+[2025-04-23 23:51:50] Train loss: 0.4267 | Val loss: 0.5197
+[2025-04-23 23:51:50] Logging to W&B: Epoch 8 | Val Acc: 85.78
+[2025-04-23 23:51:50] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 85.78%)
+
+[2025-04-23 23:51:50] [Epoch 9/20]
+[2025-04-23 23:53:43] Train acc: 88.62% | Val acc: 86.36%
+[2025-04-23 23:53:43] Train loss: 0.3947 | Val loss: 0.4837
+[2025-04-23 23:53:43] Logging to W&B: Epoch 9 | Val Acc: 86.36
+[2025-04-23 23:53:43] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 86.36%)
+
+[2025-04-23 23:53:43] [Epoch 10/20]
+[2025-04-23 23:55:37] Train acc: 89.17% | Val acc: 87.11%
+[2025-04-23 23:55:37] Train loss: 0.3696 | Val loss: 0.4787
+[2025-04-23 23:55:37] Logging to W&B: Epoch 10 | Val Acc: 87.11
+[2025-04-23 23:55:37] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 87.11%)
+
+[2025-04-23 23:55:37] [Epoch 11/20]
+[2025-04-23 23:57:30] Train acc: 89.73% | Val acc: 87.35%
+[2025-04-23 23:57:30] Train loss: 0.3488 | Val loss: 0.4538
+[2025-04-23 23:57:30] Logging to W&B: Epoch 11 | Val Acc: 87.35
+[2025-04-23 23:57:30] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 87.35%)
+
+[2025-04-23 23:57:30] [Epoch 12/20]
+[2025-04-23 23:59:22] Train acc: 90.12% | Val acc: 87.47%
+[2025-04-23 23:59:22] Train loss: 0.3288 | Val loss: 0.4456
+[2025-04-23 23:59:22] Logging to W&B: Epoch 12 | Val Acc: 87.47
+[2025-04-23 23:59:22] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 87.47%)
+
+[2025-04-23 23:59:22] [Epoch 13/20]
+[2025-04-24 00:01:16] Train acc: 90.48% | Val acc: 87.78%
+[2025-04-24 00:01:16] Train loss: 0.3166 | Val loss: 0.4336
+[2025-04-24 00:01:16] Logging to W&B: Epoch 13 | Val Acc: 87.78
+[2025-04-24 00:01:16] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 87.78%)
+
+[2025-04-24 00:01:16] [Epoch 14/20]
+[2025-04-24 00:03:09] Train acc: 90.78% | Val acc: 88.29%
+[2025-04-24 00:03:09] Train loss: 0.3035 | Val loss: 0.4113
+[2025-04-24 00:03:09] Logging to W&B: Epoch 14 | Val Acc: 88.29
+[2025-04-24 00:03:09] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 88.29%)
+
+[2025-04-24 00:03:09] [Epoch 15/20]
+[2025-04-24 00:04:59] Train acc: 90.96% | Val acc: 88.56%
+[2025-04-24 00:04:59] Train loss: 0.2941 | Val loss: 0.3985
+[2025-04-24 00:04:59] Logging to W&B: Epoch 15 | Val Acc: 88.56
+[2025-04-24 00:04:59] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 88.56%)
+
+[2025-04-24 00:04:59] [Epoch 16/20]
+[2025-04-24 00:06:52] Train acc: 91.14% | Val acc: 88.60%
+[2025-04-24 00:06:52] Train loss: 0.2853 | Val loss: 0.4042
+[2025-04-24 00:06:52] Logging to W&B: Epoch 16 | Val Acc: 88.60
+[2025-04-24 00:06:52] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 88.60%)
+
+[2025-04-24 00:06:52] [Epoch 17/20]
+[2025-04-24 00:08:46] Train acc: 91.39% | Val acc: 88.53%
+[2025-04-24 00:08:46] Train loss: 0.2758 | Val loss: 0.3905
+[2025-04-24 00:08:46] Logging to W&B: Epoch 17 | Val Acc: 88.53
+
+[2025-04-24 00:08:46] [Epoch 18/20]
+[2025-04-24 00:10:39] Train acc: 91.53% | Val acc: 88.56%
+[2025-04-24 00:10:39] Train loss: 0.2680 | Val loss: 0.3972
+[2025-04-24 00:10:39] Logging to W&B: Epoch 18 | Val Acc: 88.56
+
+[2025-04-24 00:10:39] [Epoch 19/20]
+[2025-04-24 00:12:33] Train acc: 91.69% | Val acc: 89.17%
+[2025-04-24 00:12:33] Train loss: 0.2626 | Val loss: 0.3854
+[2025-04-24 00:12:33] Logging to W&B: Epoch 19 | Val Acc: 89.17
+[2025-04-24 00:12:33] [SAVE] New best model to models/baseline_trial15_best.pth (val acc: 89.17%)
+
+[2025-04-24 00:12:33] [Epoch 20/20]
+[2025-04-24 00:14:25] Train acc: 91.84% | Val acc: 89.08%
+[2025-04-24 00:14:25] Train loss: 0.2577 | Val loss: 0.3758
+[2025-04-24 00:14:25] Logging to W&B: Epoch 20 | Val Acc: 89.08
+[2025-04-24 00:14:25] Trial 15 complete. Best val acc: 89.17%
