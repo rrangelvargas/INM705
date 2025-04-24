@@ -4,13 +4,22 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import argparse
+import os
+import datetime
 
 from dataset.dataset import SignLanguageDataset
 
+# os.environ["https_proxy"] = "http_proxy=http://hpc-proxy00.city.ac.uk:3128/"
+
+def timestamp():
+    return datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a sign language model.")
-    parser.add_argument("--model", type=str, default="baseline", choices=["baseline", "vqvae", "attention"],
-                        help="Model type to train: 'baseline' or 'vqvae'")
+    parser.add_argument("--model", type=str, default="baseline", 
+                       choices=["baseline", "vqvae", "attention", "baseline_lr", "baseline_loss_ls", "baseline_loss_cosine"],
+                       help="Model type to train")
+    parser.add_argument("--max-words", type=int, default=None, help="Maximum number of words to use from the dataset")
     return parser.parse_args()
 
 def run_epoch(model, loader, loss_fn, opt, device, is_train=True):
@@ -68,7 +77,6 @@ def run_epoch(model, loader, loss_fn, opt, device, is_train=True):
 
     return avg_loss, avg_class_loss, avg_extra_loss, accuracy
 
-
 def train():
     args = parse_args()
 
@@ -89,8 +97,12 @@ def train():
     print(f"[config] Model type selected: {config.model}")
     if config.model == "baseline":
         from models.model_baseline import SignLanguageModel as SelectedModel
-    elif config.model == "attention":
-        from models.model_attention import SignLanguageAttentionModel as SelectedModel
+    elif config.model == "baseline_lr":
+        from models.model_baseline_lr import SignLanguageModel as SelectedModel
+    elif config.model == "baseline_loss_ls":
+        from models.model_baseline_loss import SignLanguageModel as SelectedModel
+    elif config.model == "baseline_loss_cosine":
+        from models.model_baseline_loss import SignLanguageModel as SelectedModel
     elif config.model == "vqvae":
         from models.model_vqvae import SignLanguageVQVAEModel as SelectedModel
     elif config.model == "attention":
@@ -104,8 +116,7 @@ def train():
         videos_dir='data/videos',
         sequence_length=config.sequence_length,
         cache_dir='data/cached_landmarks',
-        max_words=10
-        # max_words=args.max_words
+        max_words=args.max_words
     )
     print(f"[data] Loaded {len(dataset)} samples with {len(dataset.word2idx)} classes.")
 
@@ -121,10 +132,52 @@ def train():
 
     print("[model] Initializing model...")
     model = SelectedModel(len(dataset.word2idx)).to(device)
-    wandb.watch(model, log="all")
+    wandb.watch(model, log="gradients", log_freq=100)
 
-    loss_fn = torch.nn.CrossEntropyLoss()
     opt = torch.optim.Adam(model.parameters(), lr=config.lr)
+    loss_fn_name = "cross_entropy"
+
+    # Select appropriate loss function
+    if config.model == "baseline_loss_ls":
+        from models.model_baseline_loss import get_loss
+        loss_fn = get_loss("label_smoothing")
+        loss_fn_name = "label_smoothing"
+        wandb.config.update({
+            "loss_function": "label_smoothing",
+            "loss_params": {"reduction": "mean"}
+        })
+    elif config.model == "baseline_loss_cosine":
+        from models.model_baseline_loss import get_loss
+        loss_fn = get_loss("cosine")
+        loss_fn_name = "cosine"
+        wandb.config.update({
+            "loss_function": "cosine",
+            "loss_params": {"reduction": "mean"}
+        })
+    else:
+        loss_fn = torch.nn.CrossEntropyLoss()
+        wandb.config.update({
+            "loss_function": "cross_entropy",
+            "loss_params": {"reduction": "mean"}
+        })
+
+    # Initialize learning rate scheduler if using baseline_lr
+    if config.model == "baseline_lr":
+        from models.model_baseline_lr import WarmupCosineScheduler
+        scheduler = WarmupCosineScheduler(
+            optimizer=opt,
+            warmup_epochs=5,
+            max_epochs=20,
+            min_lr=1e-6
+        )
+        wandb.config.update({
+            "scheduler": "warmup_cosine",
+            "scheduler_params": {
+                "warmup_epochs": 5,
+                "max_epochs": 20,
+                "min_lr": 1e-6
+            }
+        })
 
     train_losses, train_accuracies = [], []
     val_losses, val_accuracies = [], []
@@ -139,6 +192,15 @@ def train():
         val_loss, val_class_loss, val_extra_loss, val_acc = run_epoch(
             model, val_loader, loss_fn, opt, device, is_train=False)
 
+        # Step the learning rate scheduler if using baseline_lr
+        if config.model == "baseline_lr":
+            scheduler.step()
+            current_lr = scheduler.get_last_lr()[0]
+            wandb.log({
+                "learning_rate": current_lr,
+                "epoch": epoch + 1
+            })
+
         train_losses.append(train_loss)
         train_accuracies.append(train_acc)
         val_losses.append(val_loss)
@@ -148,7 +210,8 @@ def train():
         print(f"[epoch {epoch + 1}] train loss: {train_loss:.4f} (class: {train_class_loss:.4f}, extra: {train_extra_loss:.4f})")
         print(f"[epoch {epoch + 1}] val loss:   {val_loss:.4f} (class: {val_class_loss:.4f}, extra: {val_extra_loss:.4f})")
 
-        wandb.log({
+        # Enhanced logging for different models
+        log_data = {
             "epoch": epoch + 1,
             "train_loss": train_loss,
             "train_class_loss": train_class_loss,
@@ -158,9 +221,22 @@ def train():
             "val_class_loss": val_class_loss,
             "val_extra_loss": val_extra_loss,
             "val_acc": val_acc
-        })
+        }
 
-        # check if this is the best model so far
+        # Add model-specific metrics
+        if "baseline_loss" in config.model:
+            log_data.update({
+                "loss_type": loss_fn_name,
+                "loss_value": train_class_loss
+            })
+        elif config.model == "baseline_lr":
+            log_data.update({
+                "current_lr": current_lr,
+                "scheduler_epoch": scheduler.current_epoch
+            })
+
+        wandb.log(log_data)
+
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_model_path = f'models/{config.model}_best.pth'
@@ -196,6 +272,20 @@ def train():
     plt.close()
     print(f"[plot] Saved plot to '{plot_path}'")
     wandb.log({"training_progress_plot": wandb.Image(plot_path)})
+
+    # Log final results
+    wandb.log({
+        "final_val_acc": best_val_acc,
+        "final_epoch": config.epochs,
+        "final_model": config.model,
+        "model_specific": {
+            "loss_function": config.get("loss_function", "cross_entropy"),
+            "loss_params": config.get("loss_params", {}),
+            "scheduler": config.get("scheduler", None),
+            "scheduler_params": config.get("scheduler_params", {})
+        }
+    })
+
     wandb.finish()
     print("[done] Training complete. W&B run finished.")
 

@@ -11,12 +11,16 @@ from dataset.dataset import SignLanguageDataset
 import argparse
 import datetime
 
+# os.environ["https_proxy"] = "http_proxy=http://hpc-proxy00.city.ac.uk:3128/"
+
 def timestamp():
     return datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="baseline", choices=["baseline", "vqvae", "attention"])
+    parser.add_argument("--model", type=str, default="baseline", 
+                       choices=["baseline", "vqvae", "attention", "baseline_lr", "baseline_loss"])
+    parser.add_argument("--max-words", type=int, default=None, help="Maximum number of words to use from the dataset")
     return parser.parse_args()
 
 def run_epoch(model, loader, loss_fn, opt, device, is_train=True):
@@ -73,8 +77,9 @@ def train_with_config(config, combinations):
     dataset = SignLanguageDataset(
         json_path='data/WLASL_v0.3.json',
         videos_dir='data/videos',
-        sequence_length=config.sequence_length, # number of frames or landmarks per video
-        cache_dir='data/cached_landmarks'
+        sequence_length=config.sequence_length,
+        cache_dir='data/cached_landmarks',
+        max_words=config.max_words
     )
     print(f"{timestamp()} Dataset loaded: {len(dataset)} samples | {len(dataset.word2idx)} classes")
 
@@ -101,6 +106,22 @@ def train_with_config(config, combinations):
             num_layers=config.num_layers,
             dropout=config.dropout
         )
+    elif config.model == "baseline_lr":
+        from models.model_baseline_lr import SignLanguageModel as SelectedModel
+        model = SelectedModel(
+            num_classes=len(dataset.word2idx),
+            hidden_size=config.hidden_size,
+            num_layers=config.num_layers,
+            dropout=config.dropout
+        )
+    elif config.model == "baseline_loss":
+        from models.model_baseline_loss import SignLanguageModel as SelectedModel
+        model = SelectedModel(
+            num_classes=len(dataset.word2idx),
+            hidden_size=config.hidden_size,
+            num_layers=config.num_layers,
+            dropout=config.dropout
+        )
     elif config.model == "vqvae":
         from models.model_vqvae import SignLanguageVQVAEModel as SelectedModel
         model = SelectedModel(len(dataset.word2idx))
@@ -119,7 +140,53 @@ def train_with_config(config, combinations):
     model = model.to(device)
     wandb.watch(model, log="gradients", log_freq=100)
     opt = torch.optim.Adam(model.parameters(), lr=config.lr)
-    loss_fn = nn.CrossEntropyLoss()
+
+    loss_fn_name = "cross_entropy"
+
+    # Select appropriate loss function
+    if config.model == "baseline_loss_ls":
+        from models.model_baseline_loss import get_loss
+        loss_fn = get_loss("label_smoothing")
+        loss_fn_name = "label_smoothing"
+        # Log loss function details
+        wandb.config.update({
+            "loss_function": "label_smoothing",
+            "loss_params": {"reduction": "mean"}
+        })
+    elif config.model == "baseline_loss_cosine":
+        from models.model_baseline_loss import get_loss
+        loss_fn = get_loss("cosine")
+        loss_fn_name = "cosine"
+        # Log loss function details
+        wandb.config.update({
+            "loss_function": "cosine",
+            "loss_params": {"reduction": "mean"}    
+        })
+    else:
+        loss_fn = nn.CrossEntropyLoss()
+        wandb.config.update({
+            "loss_function": "cross_entropy",
+            "loss_params": {"reduction": "mean"}
+        })
+
+    # Initialize learning rate scheduler if using baseline_lr
+    if config.model == "baseline_lr":
+        from models.model_baseline_lr import WarmupCosineScheduler
+        scheduler = WarmupCosineScheduler(
+            optimizer=opt,
+            warmup_epochs=5,
+            max_epochs=30,
+            min_lr=1e-6
+        )
+        # Log scheduler details
+        wandb.config.update({
+            "scheduler": "warmup_cosine",
+            "scheduler_params": {
+                "warmup_epochs": 5,
+                "max_epochs": config.epochs,
+                "min_lr": 1e-6
+            }
+        })
 
     print(f"{timestamp()} Model initialized with {sum(p.numel() for p in model.parameters())} parameters")
 
@@ -129,11 +196,21 @@ def train_with_config(config, combinations):
         train_loss, train_class, train_extra, train_acc = run_epoch(model, train_loader, loss_fn, opt, device, True)
         val_loss, val_class, val_extra, val_acc = run_epoch(model, val_loader, loss_fn, opt, device, False)
 
+        # Step the learning rate scheduler if using baseline_lr
+        if config.model == "baseline_lr":
+            scheduler.step()
+            current_lr = scheduler.get_last_lr()[0]
+            wandb.log({
+                "learning_rate": current_lr,
+                "epoch": epoch + 1
+            })
+
         print(f"{timestamp()} Train acc: {train_acc:.2f}% | Val acc: {val_acc:.2f}%")
         print(f"{timestamp()} Train loss: {train_loss:.4f} | Val loss: {val_loss:.4f}")
         print(f"{timestamp()} Logging to W&B: Epoch {epoch + 1} | Val Acc: {val_acc:.2f}")
 
-        wandb.log({
+        # Enhanced logging for different models
+        log_data = {
             "epoch": epoch + 1,
             "train_loss": train_loss,
             "train_class_loss": train_class,
@@ -143,7 +220,21 @@ def train_with_config(config, combinations):
             "val_class_loss": val_class,
             "val_extra_loss": val_extra,
             "val_acc": val_acc
-        })
+        }
+
+        # Add model-specific metrics
+        if "baseline_loss" in config.model:
+            log_data.update({
+                "loss_type": loss_fn_name,
+                "loss_value": train_class
+            })
+        elif config.model == "baseline_lr":
+            log_data.update({
+                "current_lr": current_lr,
+                "scheduler_epoch": scheduler.current_epoch
+            })
+
+        wandb.log(log_data)
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
@@ -162,7 +253,13 @@ def train_with_config(config, combinations):
                 "timestamp": timestamp(),
                 "run_time_secs": run_time_secs,
                 "val_acc": best_val_acc,
-                "config": dict(config)
+                "config": dict(config),
+                "model_specific": {
+                    "loss_function": config.get("loss_function", "cross_entropy"),
+                    "loss_params": config.get("loss_params", {}),
+                    "scheduler": config.get("scheduler", None),
+                    "scheduler_params": config.get("scheduler_params", {})
+                }
             }, f, indent=2)
     except Exception as e:
         print(f"{timestamp()} [WARN] Failed to write result JSON: {e}")
@@ -171,7 +268,13 @@ def train_with_config(config, combinations):
         "final_val_acc": best_val_acc,
         "run_time_secs": run_time_secs,
         "final_epoch": config.epochs,
-        "final_model": config.model
+        "final_model": config.model,
+        "model_specific": {
+            "loss_function": config.get("loss_function", "cross_entropy"),
+            "loss_params": config.get("loss_params", {}),
+            "scheduler": config.get("scheduler", None),
+            "scheduler_params": config.get("scheduler_params", {})
+        }
     })
 
     wandb.finish()
@@ -185,13 +288,14 @@ def train_with_config(config, combinations):
 def main():
     args = parse_args()
 
-    # Define grid search ranges
+    # # Define grid search ranges
     grid = {
         "batch_size": [8, 16],
         "lr": [1e-4, 3e-4],
         "sequence_length": [40],
         "num_layers": [1],
         "dropout": [0.0, 0.5],
+        "max_words": [args.max_words] if args.max_words is not None else [None]
     }
 
     # Modify grid based on model
@@ -200,6 +304,7 @@ def main():
         grid["attention_type"] = ["dot", "additive"]
     else:
         grid["hidden_size"] = [256, 512]  # More options for other models
+
 
     # Create all trial combinations
     param_keys = list(grid.keys())
