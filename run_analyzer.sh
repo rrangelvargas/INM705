@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=sign-train                # Job name
+#SBATCH --job-name=sign-analyzer              # Job name
 #SBATCH --partition=gengpu                   # GPU partition
 #SBATCH --nodes=1                            # 1 node
 #SBATCH --ntasks-per-node=1                  # 1 task per node
 #SBATCH --cpus-per-task=4                    # 4 CPU cores
 #SBATCH --mem=24GB                           # 24GB CPU RAM
-#SBATCH --time=24:00:00                      # Max time
+#SBATCH --time=36:00:00                      # Max time
 #SBATCH --gres=gpu:1                         # Request 1 GPU
 #SBATCH -e results/%x_%j.e                   # Error log
 #SBATCH -o results/%x_%j.o                   # Output log
@@ -33,6 +33,4 @@ wandb login $WANDB_API_KEY --relogin
 which python
 python --version
 
-# Run your training script
-export https_proxy=http://hpc-proxy00.city.ac.uk
-python train_grid.py --model attention
+python analyze_results.py

@@ -76,3 +76,4 @@ typing-inspection
 tzdata
 urllib3
 wandb
+seaborn
