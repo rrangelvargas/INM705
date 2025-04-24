@@ -7,6 +7,8 @@ torchvision
 torchaudio
 
 absl-py
+ace_tools
+alembic
 annotated-types
 attrs
 certifi
@@ -14,6 +16,7 @@ cffi
 charset-normalizer
 click
 colorama
+colorlog
 contourpy
 cycler
 docker-pycreds
@@ -23,11 +26,13 @@ fonttools
 fsspec
 gitdb
 GitPython
+greenlet
 idna
 jax
 jaxlib
 Jinja2
 kiwisolver
+Mako
 MarkupSafe
 matplotlib
 mediapipe
@@ -38,9 +43,10 @@ numpy
 opencv-contrib-python
 opencv-python
 opt_einsum
+optuna
 packaging
+pandas
 pillow
-pip
 platformdirs
 protobuf
 psutil
@@ -49,16 +55,17 @@ pydantic
 pydantic_core
 pyparsing
 python-dateutil
+pytz
 PyYAML
 requests
 scipy
 sentencepiece
 sentry-sdk
 setproctitle
-setuptools
 six
 smmap
 sounddevice
+SQLAlchemy
 sympy
 torch
 torchaudio
@@ -66,5 +73,6 @@ torchvision
 tqdm
 typing_extensions
 typing-inspection
+tzdata
 urllib3
 wandb

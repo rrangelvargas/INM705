@@ -9,10 +9,8 @@ from dataset.dataset import SignLanguageDataset
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a sign language model.")
-    parser.add_argument("--model", type=str, default="baseline", choices=["baseline", "attention", "vqvae"],
-                        help="Model type to train: 'baseline', 'attention' or 'vqvae'")
-    parser.add_argument("--max_words", type=int, default=None,
-                        help="Maximum number of words to use from the dataset. If None, use all words.")
+    parser.add_argument("--model", type=str, default="baseline", choices=["baseline", "vqvae", "attention"],
+                        help="Model type to train: 'baseline' or 'vqvae'")
     return parser.parse_args()
 
 def run_epoch(model, loader, loss_fn, opt, device, is_train=True):
@@ -95,6 +93,8 @@ def train():
         from models.model_attention import SignLanguageAttentionModel as SelectedModel
     elif config.model == "vqvae":
         from models.model_vqvae import SignLanguageVQVAEModel as SelectedModel
+    elif config.model == "attention":
+        from models.model_attention import SignLanguageAttentionModel as SelectedModel
     else:
         raise ValueError(f"Unknown model type: {config.model}")
 
