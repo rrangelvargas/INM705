@@ -23,4 +23,3 @@ wandb/
 *.png
 analysis_plots/
 plots/
-*.txt
