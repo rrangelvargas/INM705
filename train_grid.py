@@ -1,3 +1,4 @@
+# imports
 import torch
 import torch.nn as nn
 import wandb
@@ -10,58 +11,72 @@ from torch.utils.data import DataLoader
 from dataset.dataset import SignLanguageDataset
 import argparse
 import datetime
+import matplotlib.pyplot as plt
 
-# os.environ["https_proxy"] = "http_proxy=http://hpc-proxy00.city.ac.uk:3128/"
-
+# returns a timestamp string for printing/logging
 def timestamp():
     return datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
 
+# parses command line arguments
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="baseline", 
-                       choices=["baseline", "vqvae", "attention", "baseline_lr", "baseline_loss_ls", "baseline_loss_arcface"])
+    parser.add_argument("--model", type=str, default="baseline",
+        choices=["baseline", "attention", "baseline_lr", "baseline_loss_ls", "baseline_loss_arcface", "baseline_loss_combined", "vqvae"],
+        help="Model type to train")
     parser.add_argument("--max-words", type=int, default=None, help="Maximum number of words to use from the dataset")
     return parser.parse_args()
 
+# runs one full training or validation epoch
 def run_epoch(model, loader, loss_fn, opt, device, is_train=True):
     model.train() if is_train else model.eval()
+
     total_loss, correct, total, num_batches = 0.0, 0, 0, 0
     total_class_loss, total_extra_loss = 0.0, 0.0
-    loop = tqdm(loader, desc="train" if is_train else "val")
 
+    loop = tqdm(loader, desc="train" if is_train else "val")
     for x, y in loop:
         x, y = x.to(device), y.squeeze().to(device)
+
         if is_train:
             opt.zero_grad()
+
         with torch.set_grad_enabled(is_train):
             output = model(x)
             logits, extra_loss = output if isinstance(output, tuple) else (output, 0.0)
             class_loss = loss_fn(logits, y)
             loss = class_loss + extra_loss
+
             if is_train:
                 loss.backward()
                 opt.step()
+
         total_loss += loss.item()
         total_class_loss += class_loss.item()
         if isinstance(extra_loss, torch.Tensor):
             total_extra_loss += extra_loss.item()
+
         pred = logits.argmax(1)
         correct += (pred == y).sum().item()
         total += y.size(0)
         num_batches += 1
+
         loop.set_postfix({'loss': loss.item(), 'acc': 100 * correct / total})
 
+    # returns averaged loss, class loss, extra loss, and accuracy
     return (total_loss / num_batches,
             total_class_loss / num_batches,
             total_extra_loss / num_batches,
             100 * correct / total)
 
+# runs training for one configuration from the grid
 def train_with_config(config, combinations):
     start_time = time.time()
     trial_id = config['trial_id']
+
     print(f"\n{timestamp()} === Starting Trial {trial_id}/{len(combinations)} ===")
     print(f"{timestamp()} Config: {config}")
 
+    # initialize wandb
     wandb.init(
         project="sign-language-lstm",
         config=config,
@@ -73,6 +88,7 @@ def train_with_config(config, combinations):
 
     config = wandb.config
 
+    # load dataset
     print(f"{timestamp()} Loading dataset...")
     dataset = SignLanguageDataset(
         json_path='data/WLASL_v0.3.json',
@@ -83,72 +99,47 @@ def train_with_config(config, combinations):
     )
     print(f"{timestamp()} Dataset loaded: {len(dataset)} samples | {len(dataset.word2idx)} classes")
 
+    # split into training and validation sets
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
 
+    # create data loaders
     loader = lambda ds: DataLoader(ds, batch_size=config.batch_size, shuffle=True, drop_last=True)
     train_loader, val_loader = loader(train_set), loader(val_set)
 
+    # set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"{timestamp()} Using device: {device}")
 
-    # Log device info to wandb and print
+    # log device to wandb
     device_name = torch.cuda.get_device_name(0) if device.type == "cuda" else "cpu"
     wandb.config.update({"device": device_name})
-    print(f"{timestamp()} Logged device to W&B: {device_name}")
 
+    # select model
     if config.model == "baseline":
         from models.model_baseline import SignLanguageModel as SelectedModel
-        model = SelectedModel(
-            num_classes=len(dataset.word2idx),
-            hidden_size=config.hidden_size,
-            num_layers=config.num_layers,
-            dropout=config.dropout
-        )
     elif config.model == "baseline_lr":
         from models.model_baseline_lr import SignLanguageModel as SelectedModel
-        model = SelectedModel(
-            num_classes=len(dataset.word2idx),
-            hidden_size=config.hidden_size,
-            num_layers=config.num_layers,
-            dropout=config.dropout
-        )
-    elif config.model == "baseline_loss":
+    elif config.model in ["baseline_loss_ls", "baseline_loss_arcface", "baseline_loss_combined"]:
         from models.model_baseline_loss import SignLanguageModel as SelectedModel
-        model = SelectedModel(
-            num_classes=len(dataset.word2idx),
-            hidden_size=config.hidden_size,
-            num_layers=config.num_layers,
-            dropout=config.dropout
-        )
-    elif config.model == "vqvae":
-        from models.model_vqvae import SignLanguageVQVAEModel as SelectedModel
-        model = SelectedModel(len(dataset.word2idx))
     elif config.model == "attention":
         from models.model_attention import SignLanguageAttentionModel as SelectedModel
-        model = SelectedModel(
-            num_classes=len(dataset.word2idx),
-            hidden_size=config.hidden_size,
-            num_layers=config.num_layers,
-            dropout=config.dropout,
-            attention_type=config.attention_type
-        )
     else:
-        raise ValueError(f"Unknown model: {config.model}")
+        raise ValueError(f"Unknown model type: {config.model}")
 
-    model = model.to(device)
+    # initialize model
+    model = SelectedModel(len(dataset.word2idx)).to(device)
     wandb.watch(model, log="gradients", log_freq=100)
-    opt = torch.optim.Adam(model.parameters(), lr=config.lr)
 
+    opt = torch.optim.Adam(model.parameters(), lr=config.lr)
     loss_fn_name = "cross_entropy"
 
-    # Select appropriate loss function
+    # select loss function
     if config.model == "baseline_loss_ls":
         from models.model_baseline_loss import get_loss
         loss_fn = get_loss("label_smoothing")
         loss_fn_name = "label_smoothing"
-        # Log loss function details
         wandb.config.update({
             "loss_function": "label_smoothing",
             "loss_params": {"reduction": "mean"}
@@ -157,14 +148,9 @@ def train_with_config(config, combinations):
         from models.model_baseline_loss import get_loss
         loss_fn = get_loss("arcface", margin=0.5, scale=30.0)
         loss_fn_name = "arcface"
-        # Log loss function details
         wandb.config.update({
             "loss_function": "arcface",
-            "loss_params": {
-                "margin": 0.5,
-                "scale": 30.0,
-                "reduction": "mean"
-            }
+            "loss_params": {"margin": 0.5, "scale": 30.0, "reduction": "mean"}
         })
     else:
         loss_fn = nn.CrossEntropyLoss()
@@ -173,7 +159,7 @@ def train_with_config(config, combinations):
             "loss_params": {"reduction": "mean"}
         })
 
-    # Initialize learning rate scheduler if using baseline_lr
+    # initialize scheduler if needed
     if config.model == "baseline_lr":
         from models.model_baseline_lr import WarmupCosineScheduler
         scheduler = WarmupCosineScheduler(
@@ -182,7 +168,6 @@ def train_with_config(config, combinations):
             max_epochs=30,
             min_lr=1e-6
         )
-        # Log scheduler details
         wandb.config.update({
             "scheduler": "warmup_cosine",
             "scheduler_params": {
@@ -195,25 +180,24 @@ def train_with_config(config, combinations):
     print(f"{timestamp()} Model initialized with {sum(p.numel() for p in model.parameters())} parameters")
 
     best_val_acc = 0.0
+
     for epoch in range(config.epochs):
         print(f"\n{timestamp()} [Epoch {epoch + 1}/{config.epochs}]")
+
+        # run training and validation
         train_loss, train_class, train_extra, train_acc = run_epoch(model, train_loader, loss_fn, opt, device, True)
         val_loss, val_class, val_extra, val_acc = run_epoch(model, val_loader, loss_fn, opt, device, False)
 
-        # Step the learning rate scheduler if using baseline_lr
+        # step scheduler if used
         if config.model == "baseline_lr":
             scheduler.step()
             current_lr = scheduler.get_last_lr()[0]
-            wandb.log({
-                "learning_rate": current_lr,
-                "epoch": epoch + 1
-            })
+            wandb.log({"learning_rate": current_lr, "epoch": epoch + 1})
 
         print(f"{timestamp()} Train acc: {train_acc:.2f}% | Val acc: {val_acc:.2f}%")
         print(f"{timestamp()} Train loss: {train_loss:.4f} | Val loss: {val_loss:.4f}")
-        print(f"{timestamp()} Logging to W&B: Epoch {epoch + 1} | Val Acc: {val_acc:.2f}")
 
-        # Enhanced logging for different models
+        # log metrics
         log_data = {
             "epoch": epoch + 1,
             "train_loss": train_loss,
@@ -226,20 +210,14 @@ def train_with_config(config, combinations):
             "val_acc": val_acc
         }
 
-        # Add model-specific metrics
         if "baseline_loss" in config.model:
-            log_data.update({
-                "loss_type": loss_fn_name,
-                "loss_value": train_class
-            })
+            log_data.update({"loss_type": loss_fn_name, "loss_value": train_class})
         elif config.model == "baseline_lr":
-            log_data.update({
-                "current_lr": current_lr,
-                "scheduler_epoch": scheduler.current_epoch
-            })
+            log_data.update({"current_lr": current_lr, "scheduler_epoch": scheduler.current_epoch})
 
         wandb.log(log_data)
 
+        # save best model
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             save_path = f"models/{config.model}_trial{trial_id}_best.pth"
@@ -248,9 +226,10 @@ def train_with_config(config, combinations):
 
     print(f"{timestamp()} Trial {trial_id} complete. Best val acc: {best_val_acc:.2f}%\n")
 
+    # log trial results
     run_time_secs = round(time.time() - start_time, 2)
-
     os.makedirs("results", exist_ok=True)
+
     try:
         with open(f"results/trial_{trial_id:03d}_{config.model}_log.json", "w") as f:
             json.dump({
@@ -284,15 +263,17 @@ def train_with_config(config, combinations):
     wandb.finish()
     time.sleep(2)
 
+    # append result to grid log
     with open("grid_search_log.txt", "a") as f:
         f.write(f"{timestamp()} Trial {trial_id} | {dict(config)} | Val Acc: {best_val_acc:.2f}\n")
 
     return best_val_acc
 
+# grid search main loop
 def main():
     args = parse_args()
 
-    # # Define grid search ranges
+    # define hyperparameter grid
     grid = {
         "batch_size": [8, 16],
         "lr": [1e-4, 3e-4],
@@ -302,15 +283,14 @@ def main():
         "max_words": [args.max_words] if args.max_words is not None else [None]
     }
 
-    # Modify grid based on model
+    # adjust grid for attention models
     if args.model == "attention":
-        grid["hidden_size"] = [512]  # Always use 512 for attention
-        grid["attention_type"] = ["dot", "additive"]
+        grid["hidden_size"] = [512]
+        grid["attention_type"] = ["linear", "additive"]
     else:
-        grid["hidden_size"] = [256, 512]  # More options for other models
+        grid["hidden_size"] = [256, 512]
 
-
-    # Create all trial combinations
+    # generate all trial configs
     param_keys = list(grid.keys())
     combinations = list(itertools.product(*grid.values()))
 
@@ -318,7 +298,6 @@ def main():
         try:
             print(f"{timestamp()} Grid Progress: Trial {trial_id + 1}/{len(combinations)}")
 
-            # Build config
             config = dict(zip(param_keys, values))
             config.update({
                 "model": args.model,

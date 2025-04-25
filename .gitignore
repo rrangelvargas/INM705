@@ -13,9 +13,14 @@ results/
 .idea/
 .vscode/
 *.pt
-*.pth
 *.ckpt
 wandb/
 .history/
 .history/*
 *.rar
+*.e
+*.out
+*.png
+analysis_plots/
+plots/
+*.txt

@@ -33,4 +33,4 @@ wandb login $WANDB_API_KEY --relogin
 which python
 python --version
 
-python train_grid.py --model baseline
+python train.py --model baseline
