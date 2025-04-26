@@ -1,12 +1,14 @@
 import os
-import re
 import torch
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from dataset.dataset import SignLanguageDataset
-from models.model_baseline import SignLanguageModel
-from models.model_attention import SignLanguageAttentionModel
+from models.model_baseline_loss import SignLanguageModel as BaselineLossModel
+from sklearn.metrics import confusion_matrix
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"[device] Using {device}")
@@ -19,119 +21,135 @@ JSON_PATH = "data/WLASL_v0.3.json"
 VIDEOS_DIR = "data/videos"
 CACHE_DIR = "data/cached_landmarks"
 
-# === FILENAME PARSER ===
-def parse_model_filename(filename):
-    pattern = r"(baseline|attention)_trial(\d+)_h(\d+)_l(\d+)_d([0-9.]+)(?:_attn_(linear|additive))?_best\.pth"
-    match = re.match(pattern, filename)
-    if not match:
-        return None
-    return {
-        "model": match.group(1),
-        "trial": int(match.group(2)),
-        "hidden_size": int(match.group(3)),
-        "num_layers": int(match.group(4)),
-        "dropout": float(match.group(5)),
-        "attention_type": match.group(6) if match.group(1) == "attention" else None
-    }
-
-# === EVALUATION FUNCTION ===
-def evaluate_model(model, dataloader):
+def evaluate_model(model, dataloader, num_classes):
+    """
+    Evaluate model performance with detailed metrics.
+    """
     model.eval()
-    correct, total = 0, 0
+    correct = 0
+    total = 0
+    all_preds = []
+    all_labels = []
+    class_correct = np.zeros(num_classes)
+    class_total = np.zeros(num_classes)
+    
+    print("\nRunning evaluation...")
+    progress_bar = tqdm(dataloader, desc="Evaluating", unit="batch")
     with torch.no_grad():
-        for x, y in dataloader:
+        for x, y in progress_bar:
             x, y = x.to(device), y.squeeze().to(device)
             outputs = model(x)
-            if isinstance(outputs, tuple):
-                outputs = outputs[0]
+            
+            # Get predictions
             preds = outputs.argmax(1)
             correct += (preds == y).sum().item()
             total += y.size(0)
-    return 100 * correct / total
+            
+            # Per-class accuracy
+            for pred, label in zip(preds, y):
+                class_correct[label] += (pred == label).item()
+                class_total[label] += 1
+            
+            # Store predictions and labels
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(y.cpu().numpy())
+            
+            # Update progress bar with current accuracy
+            current_acc = 100 * correct / total
+            progress_bar.set_postfix({"Accuracy": f"{current_acc:.2f}%"})
+    
+    # Calculate metrics
+    accuracy = 100 * correct / total
+    class_accuracies = np.zeros(num_classes)
+    for i in range(num_classes):
+        if class_total[i] > 0:
+            class_accuracies[i] = 100 * class_correct[i] / class_total[i]
+    
+    # Print results
+    print(f"\nResults:")
+    print(f"Total samples: {total}")
+    print(f"Overall accuracy: {accuracy:.2f}%")
+    print(f"Per-class accuracy (avg): {np.mean(class_accuracies[class_total > 0]):.2f}%")
+    
+    return {
+        "accuracy": accuracy,
+        "total_samples": total,
+        "predictions": np.array(all_preds),
+        "labels": np.array(all_labels),
+        "class_accuracies": class_accuracies,
+        "class_totals": class_total
+    }
 
-# === LOAD DATASET ===
-print("[data] Loading dataset...")
-dataset = SignLanguageDataset(
-    json_path=JSON_PATH,
-    videos_dir=VIDEOS_DIR,
-    sequence_length=SEQ_LENGTH,
-    cache_dir=CACHE_DIR
-)
-print(f"[data] Loaded {len(dataset)} samples with {len(dataset.word2idx)} classes.")
-num_classes = len(dataset.word2idx)
-
-val_size = int(0.2 * len(dataset))
-_, val_set = torch.utils.data.random_split(dataset, [len(dataset) - val_size, val_size])
-val_loader = DataLoader(val_set, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
-
-# === MAIN ANALYSIS LOOP ===
-results = []
-
-print(f"[scan] Checking models in {MODELS_DIR}")
-for filename in os.listdir(MODELS_DIR):
-    if not filename.endswith("_best.pth"):
-        continue
-
-    meta = parse_model_filename(filename)
-    if meta is None:
-        print(f"[skip] Could not parse: {filename}")
-        continue
-
-    print(f"[load] Trial {meta['trial']} | Model: {meta['model']}")
-
-    # Instantiate correct model
-    if meta["model"] == "baseline":
-        model = SignLanguageModel(
-            num_classes=num_classes,
-            hidden_size=meta["hidden_size"],
-            num_layers=meta["num_layers"],
-            dropout=meta["dropout"]
-        )
-    elif meta["model"] == "attention":
-        model = SignLanguageAttentionModel(
-            num_classes=num_classes,
-            hidden_size=meta["hidden_size"],
-            num_layers=meta["num_layers"],
-            dropout=meta["dropout"],
-            attention_type=meta["attention_type"]
-        )
-    else:
-        print(f"[error] Unknown model type: {meta['model']}")
-        continue
-
-    model_path = os.path.join(MODELS_DIR, filename)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
-
-    acc = evaluate_model(model, val_loader)
-    print(f"[eval] Accuracy: {acc:.2f}%")
-
-    meta["val_acc"] = acc
-    results.append(meta)
-
-# === ANALYSIS ===
-df = pd.DataFrame(results)
-df = df.sort_values("val_acc", ascending=False)
-print("\n=== Top Trials ===")
-print(df[["trial", "model", "val_acc", "hidden_size", "num_layers", "dropout", "attention_type"]].head(10))
-
-# === VISUALIZATION ===
-plt.figure(figsize=(10, 6))
-plt.scatter(df["dropout"], df["val_acc"], c='blue', label='dropout')
-plt.title("Dropout vs Validation Accuracy")
-plt.xlabel("Dropout")
-plt.ylabel("Validation Accuracy (%)")
-plt.grid(True)
-plt.show()
-
-if "hidden_size" in df.columns:
-    plt.figure()
-    for h in sorted(df["hidden_size"].unique()):
-        subset = df[df["hidden_size"] == h]
-        plt.plot(subset["trial"], subset["val_acc"], label=f"H={h}")
-    plt.title("Accuracy Trends by Hidden Size")
-    plt.xlabel("Trial")
-    plt.ylabel("Validation Accuracy (%)")
+def plot_evaluation_results(results, save_dir="plots"):
+    """
+    Create and save visualization plots for the evaluation results.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # 1. Prediction vs Ground Truth scatter plot
+    plt.figure(figsize=(10, 5))
+    plt.title(f"Model Predictions vs Ground Truth\nAccuracy: {results['accuracy']:.2f}%")
+    plt.plot(range(len(results['predictions'])), results['predictions'], 'b.', label='Predictions', alpha=0.5)
+    plt.plot(range(len(results['labels'])), results['labels'], 'r.', label='Ground Truth', alpha=0.5)
+    plt.xlabel("Sample Index")
+    plt.ylabel("Class Index")
     plt.legend()
     plt.grid(True)
-    plt.show()
+    plt.savefig(os.path.join(save_dir, "predictions_vs_truth.png"))
+    plt.close()
+
+    # 2. Confusion Matrix (sample)
+    plt.figure(figsize=(12, 8))
+    # Take a subset of classes for better visualization
+    n_classes_show = 50
+    cm = confusion_matrix(results['labels'][:1000], results['predictions'][:1000])
+    cm = cm[:n_classes_show, :n_classes_show]  # Take first n classes
+    sns.heatmap(cm, cmap='Blues')
+    plt.title(f"Confusion Matrix (First {n_classes_show} Classes)")
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.savefig(os.path.join(save_dir, "confusion_matrix.png"))
+    plt.close()
+
+    # 3. Class Accuracy Distribution
+    plt.figure(figsize=(10, 5))
+    valid_accuracies = results['class_accuracies'][results['class_totals'] > 0]
+    plt.hist(valid_accuracies, bins=50, edgecolor='black')
+    plt.title("Distribution of Class-wise Accuracies")
+    plt.xlabel("Accuracy (%)")
+    plt.ylabel("Number of Classes")
+    plt.savefig(os.path.join(save_dir, "class_accuracy_distribution.png"))
+    plt.close()
+
+    print(f"\nPlots saved in {save_dir}/")
+
+if __name__ == "__main__":
+    # Load dataset
+    print("[data] Loading dataset...")
+    dataset = SignLanguageDataset(
+        json_path=JSON_PATH,
+        videos_dir=VIDEOS_DIR,
+        sequence_length=SEQ_LENGTH,
+        cache_dir=CACHE_DIR
+    )
+    print(f"[data] Loaded {len(dataset)} samples with {len(dataset.word2idx)} classes.")
+    
+    # Create validation dataset
+    val_split = 0.01
+    val_size = int(val_split * len(dataset))
+    _, val_set = torch.utils.data.random_split(dataset, [len(dataset) - val_size, val_size])
+    val_loader = DataLoader(val_set, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+    
+    # Load and evaluate model
+    model_path = os.path.join(MODELS_DIR, "baseline_loss_ls_best.pth")
+    print(f"\n[model] Loading model from {model_path}")
+    
+    model = BaselineLossModel(num_classes=len(dataset.word2idx))
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    model.to(device)
+    
+    # Run evaluation
+    results = evaluate_model(model, val_loader, len(dataset.word2idx))
+    
+    # Create visualizations
+    plot_evaluation_results(results)
