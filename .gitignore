@@ -3,7 +3,6 @@ __pycache__/
 sign-train*
 venv/
 .venv/
-data/
 results/
 *.log
 *.tmp

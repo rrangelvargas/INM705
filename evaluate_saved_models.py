@@ -1,155 +1,185 @@
 import os
 import torch
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from torch.utils.data import DataLoader
+import pickle
+import json
+import re
+from pathlib import Path
 from tqdm import tqdm
-from dataset.dataset import SignLanguageDataset
 from models.model_baseline_loss import SignLanguageModel as BaselineLossModel
-from sklearn.metrics import confusion_matrix
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"[device] Using {device}")
 
 # === CONFIG ===
 MODELS_DIR = "models"
-BATCH_SIZE = 16
-SEQ_LENGTH = 30
+TEST_DIR = "data/test"
 JSON_PATH = "data/WLASL_v0.3.json"
-VIDEOS_DIR = "data/videos"
-CACHE_DIR = "data/cached_landmarks"
 
-def evaluate_model(model, dataloader, num_classes):
+def parse_video_id(filename):
     """
-    Evaluate model performance with detailed metrics.
+    Parse the video ID from a filename, handling augmented files.
+    Example: '35305_aug_7.pkl' -> '35305'
+    """
+    # Remove .pkl extension
+    base_name = Path(filename).stem
+    # Remove _aug_N suffix if present (where N is a number)
+    video_id = re.sub(r'_aug_\d+$', '', base_name)
+    return video_id
+
+def load_word_mapping(json_path):
+    """
+    Load word to index mapping from JSON file, matching evaluate_saved_models.py.
+    """
+    with open(json_path) as f:
+        annotations = json.load(f)
+    
+    # Create word to index mapping
+    word2idx = {'<PAD>': 0, '<UNK>': 1}
+    
+    # First, count instances per word
+    word_counts = {}
+    for entry in annotations:
+        word = entry['gloss'].lower()
+        instances = [i for i in entry['instances'] if Path(f"data/videos/{i['video_id']}.mp4").exists()]
+        if instances:
+            word_counts[word] = len(instances)
+    
+    # Sort words by number of instances
+    sorted_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    # Create mapping for sorted words
+    for word, _ in sorted_words:
+        word2idx[word] = len(word2idx)
+    
+    # Create reverse mapping (index to word)
+    idx2word = {idx: word for word, idx in word2idx.items()}
+    
+    print(f"Created mapping with {len(word2idx)} words")
+    return word2idx, idx2word
+
+def create_video_to_word_mapping(json_path):
+    """
+    Create a mapping from video IDs to their corresponding words.
+    """
+    with open(json_path) as f:
+        annotations = json.load(f)
+    
+    video_to_word = {}
+    for entry in annotations:
+        word = entry['gloss'].lower()
+        for instance in entry['instances']:
+            video_to_word[instance['video_id']] = word
+    
+    return video_to_word
+
+def load_test_landmarks(test_dir):
+    """
+    Load all landmark files from the test directory.
+    The filenames should be the video IDs (possibly with augmentation suffixes).
+    """
+    test_dir = Path(test_dir)
+    landmark_files = list(test_dir.glob("*.pkl"))
+    
+    if not landmark_files:
+        raise FileNotFoundError(f"No landmark files found in {test_dir}")
+    
+    print(f"Found {len(landmark_files)} landmark files")
+    
+    # Load all landmark files
+    landmarks = []
+    video_ids = []
+    for file in tqdm(landmark_files, desc="Loading landmarks"):
+        with open(file, 'rb') as f:
+            data = pickle.load(f)
+            landmarks.append(data)
+            # Parse the video ID from the filename
+            video_id = parse_video_id(file.name)
+            video_ids.append(video_id)
+    
+    return landmarks, video_ids
+
+def predict_landmarks(model, landmarks):
+    """
+    Predict labels for multiple landmark sequences.
     """
     model.eval()
-    correct = 0
-    total = 0
-    all_preds = []
-    all_labels = []
-    class_correct = np.zeros(num_classes)
-    class_total = np.zeros(num_classes)
+    predictions = []
     
-    print("\nRunning evaluation...")
-    progress_bar = tqdm(dataloader, desc="Evaluating", unit="batch")
-    with torch.no_grad():
-        for x, y in progress_bar:
-            x, y = x.to(device), y.squeeze().to(device)
+    for landmark_data in tqdm(landmarks, desc="Making predictions"):
+        # Convert to tensor and normalize
+        x = torch.FloatTensor(landmark_data).unsqueeze(0).to(device)  # Add batch dimension
+        mean, std = torch.mean(x), torch.std(x)
+        x = (x - mean) / (std + 1e-7)
+        
+        # Get prediction
+        with torch.no_grad():
             outputs = model(x)
-            
-            # Get predictions
-            preds = outputs.argmax(1)
-            correct += (preds == y).sum().item()
-            total += y.size(0)
-            
-            # Per-class accuracy
-            for pred, label in zip(preds, y):
-                class_correct[label] += (pred == label).item()
-                class_total[label] += 1
-            
-            # Store predictions and labels
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(y.cpu().numpy())
-            
-            # Update progress bar with current accuracy
-            current_acc = 100 * correct / total
-            progress_bar.set_postfix({"Accuracy": f"{current_acc:.2f}%"})
+            pred = outputs.argmax(1).item()
+            predictions.append(pred)
     
-    # Calculate metrics
-    accuracy = 100 * correct / total
-    class_accuracies = np.zeros(num_classes)
-    for i in range(num_classes):
-        if class_total[i] > 0:
-            class_accuracies[i] = 100 * class_correct[i] / class_total[i]
-    
-    # Print results
-    print(f"\nResults:")
-    print(f"Total samples: {total}")
-    print(f"Overall accuracy: {accuracy:.2f}%")
-    print(f"Per-class accuracy (avg): {np.mean(class_accuracies[class_total > 0]):.2f}%")
-    
-    return {
-        "accuracy": accuracy,
-        "total_samples": total,
-        "predictions": np.array(all_preds),
-        "labels": np.array(all_labels),
-        "class_accuracies": class_accuracies,
-        "class_totals": class_total
-    }
-
-def plot_evaluation_results(results, save_dir="plots"):
-    """
-    Create and save visualization plots for the evaluation results.
-    """
-    os.makedirs(save_dir, exist_ok=True)
-    
-    # 1. Prediction vs Ground Truth scatter plot
-    plt.figure(figsize=(10, 5))
-    plt.title(f"Model Predictions vs Ground Truth\nAccuracy: {results['accuracy']:.2f}%")
-    plt.plot(range(len(results['predictions'])), results['predictions'], 'b.', label='Predictions', alpha=0.5)
-    plt.plot(range(len(results['labels'])), results['labels'], 'r.', label='Ground Truth', alpha=0.5)
-    plt.xlabel("Sample Index")
-    plt.ylabel("Class Index")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(save_dir, "predictions_vs_truth.png"))
-    plt.close()
-
-    # 2. Confusion Matrix (sample)
-    plt.figure(figsize=(12, 8))
-    # Take a subset of classes for better visualization
-    n_classes_show = 50
-    cm = confusion_matrix(results['labels'][:1000], results['predictions'][:1000])
-    cm = cm[:n_classes_show, :n_classes_show]  # Take first n classes
-    sns.heatmap(cm, cmap='Blues')
-    plt.title(f"Confusion Matrix (First {n_classes_show} Classes)")
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.savefig(os.path.join(save_dir, "confusion_matrix.png"))
-    plt.close()
-
-    # 3. Class Accuracy Distribution
-    plt.figure(figsize=(10, 5))
-    valid_accuracies = results['class_accuracies'][results['class_totals'] > 0]
-    plt.hist(valid_accuracies, bins=50, edgecolor='black')
-    plt.title("Distribution of Class-wise Accuracies")
-    plt.xlabel("Accuracy (%)")
-    plt.ylabel("Number of Classes")
-    plt.savefig(os.path.join(save_dir, "class_accuracy_distribution.png"))
-    plt.close()
-
-    print(f"\nPlots saved in {save_dir}/")
+    return predictions
 
 if __name__ == "__main__":
-    # Load dataset
-    print("[data] Loading dataset...")
-    dataset = SignLanguageDataset(
-        json_path=JSON_PATH,
-        videos_dir=VIDEOS_DIR,
-        sequence_length=SEQ_LENGTH,
-        cache_dir=CACHE_DIR
-    )
-    print(f"[data] Loaded {len(dataset)} samples with {len(dataset.word2idx)} classes.")
+    # Load word mappings
+    print("[data] Loading word mappings...")
+    word2idx, idx2word = load_word_mapping(JSON_PATH)
     
-    # Create validation dataset
-    val_split = 0.01
-    val_size = int(val_split * len(dataset))
-    _, val_set = torch.utils.data.random_split(dataset, [len(dataset) - val_size, val_size])
-    val_loader = DataLoader(val_set, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+    # Create video ID to word mapping
+    print("[data] Creating video ID to word mapping...")
+    video_to_word = create_video_to_word_mapping(JSON_PATH)
     
-    # Load and evaluate model
+    # Load test landmarks
+    print("[data] Loading test landmarks...")
+    landmarks, video_ids = load_test_landmarks(TEST_DIR)
+    
+    # Load model
     model_path = os.path.join(MODELS_DIR, "baseline_loss_ls_best.pth")
     print(f"\n[model] Loading model from {model_path}")
     
-    model = BaselineLossModel(num_classes=len(dataset.word2idx))
-    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
-    model.to(device)
+    model = BaselineLossModel(num_classes=len(word2idx)).to(device)
+    state_dict = torch.load(model_path, map_location=device, weights_only=True)
     
-    # Run evaluation
-    results = evaluate_model(model, val_loader, len(dataset.word2idx))
+    # Handle class size mismatch
+    if state_dict['fc.weight'].shape[0] != len(word2idx):
+        print(f"Warning: Model was trained with {state_dict['fc.weight'].shape[0]} classes, but current dataset has {len(word2idx)} classes")
+        print("Creating new output layer with correct number of classes")
+        
+        # Create new output layer with correct size
+        new_fc_weight = torch.nn.init.xavier_uniform_(torch.zeros(len(word2idx), state_dict['fc.weight'].shape[1]))
+        new_fc_bias = torch.zeros(len(word2idx))
+        
+        # Replace the old output layer weights
+        state_dict['fc.weight'] = new_fc_weight
+        state_dict['fc.bias'] = new_fc_bias
     
-    # Create visualizations
-    plot_evaluation_results(results)
+    model.load_state_dict(state_dict)
+    model.eval()
+    
+    # Make predictions
+    print("\nMaking predictions...")
+    predicted_classes = predict_landmarks(model, landmarks)
+    
+    # Print results
+    print(f"\nResults:")
+    print("-" * 90)
+    print(f"{'Video ID':<15} {'True Word':<15} {'Predicted Class':<15} {'Predicted Word':<15} {'Correct':<10}")
+    print("-" * 90)
+    
+    correct = 0
+    for video_id, pred_class in zip(video_ids, predicted_classes):
+        true_word = video_to_word.get(video_id, "Unknown")
+        predicted_word = idx2word.get(pred_class, f"Unknown class {pred_class}")
+        is_correct = true_word.lower() == predicted_word.lower()
+        if is_correct:
+            correct += 1
+        
+        print(f"{video_id:<15} {true_word:<15} {pred_class:<15} {predicted_word:<15} {'✓' if is_correct else '✗':<10}")
+    
+    # Print summary
+    print("-" * 90)
+    accuracy = 100 * correct / len(video_ids)
+    print(f"\nSummary:")
+    print(f"Total files: {len(video_ids)}")
+    print(f"Correct predictions: {correct}")
+    print(f"Accuracy: {accuracy:.2f}%") 
