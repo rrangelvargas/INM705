@@ -13,7 +13,7 @@ print(f"[device] Using {device}")
 
 # === CONFIG ===
 MODELS_DIR = "models"
-TEST_DIR = "data/test"
+TEST_DIR = "data/validation"
 JSON_PATH = "data/WLASL_v0.3.json"
 
 def parse_video_id(filename):
