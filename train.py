@@ -162,14 +162,14 @@ def train():
         scheduler = WarmupCosineScheduler(
             optimizer=opt,
             warmup_epochs=5,
-            max_epochs=20,
+            max_epochs=50,
             min_lr=1e-6
         )
         wandb.config.update({
             "scheduler": "warmup_cosine",
             "scheduler_params": {
                 "warmup_epochs": 5,
-                "max_epochs": 20,
+                "max_epochs": 50,
                 "min_lr": 1e-6
             }
         })
