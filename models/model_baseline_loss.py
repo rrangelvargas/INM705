@@ -100,7 +100,7 @@ class AdditiveAngularMarginLoss(nn.Module):
 
 # combined loss: label smoothing + ArcFace
 class CombinedLoss(nn.Module):
-    def __init__(self, smoothing=0.1, margin=0.5, scale=30.0, reduction='mean', alpha=0.5):
+    def __init__(self, smoothing=0.1, margin=0.35, scale=64.0, reduction='mean', alpha=0.5):
         super(CombinedLoss, self).__init__()
         self.label_smoothing = LabelSmoothingLoss(smoothing=smoothing, reduction=reduction)
         self.arcface = AdditiveAngularMarginLoss(margin=margin, scale=scale, reduction=reduction)
