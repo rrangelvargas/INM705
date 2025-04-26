@@ -10,7 +10,7 @@ import torch  # import torch for model and tensor operations
 from torch.utils.data import Dataset  # import dataset tool from torch
 
 class SignLanguageDataset(Dataset):  # define custom dataset class
-    def __init__(self, json_path, videos_dir, sequence_length=30, cache_dir='data/cached_landmarks', max_words=None):  # initialize dataset
+    def __init__(self, json_path, videos_dir, sequence_length=30, cache_dir='data/cached_landmarks', max_words=None, augment=True):  # initialize dataset
         self.videos_dir = Path(videos_dir)
         self.sequence_length = sequence_length
         self.cache_dir = Path(cache_dir)
@@ -58,12 +58,13 @@ class SignLanguageDataset(Dataset):  # define custom dataset class
                 if path.exists():
                     self.samples.append((path, self.word2idx[word], vid))
                     word_sample_counts[word] += 1
-                    for i in range(num_augment):
-                        if word_sample_counts[word] >= 100:
-                            break
-                        aug_vid = f"{vid}_aug_{i}"
-                        self.samples.append((path, self.word2idx[word], aug_vid))
-                        word_sample_counts[word] += 1
+                    if augment:
+                        for i in range(num_augment):
+                            if word_sample_counts[word] >= 100:
+                                break
+                            aug_vid = f"{vid}_aug_{i}"
+                            self.samples.append((path, self.word2idx[word], aug_vid))
+                            word_sample_counts[word] += 1
 
         self._preprocess_all()
 

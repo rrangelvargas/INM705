@@ -130,7 +130,8 @@ if __name__ == "__main__":
         json_path=JSON_PATH,
         videos_dir=VIDEOS_DIR,
         sequence_length=SEQ_LENGTH,
-        cache_dir=CACHE_DIR
+        cache_dir=CACHE_DIR,
+        augment=False
     )
     print(f"[data] Loaded {len(dataset)} samples with {len(dataset.word2idx)} classes.")
     
